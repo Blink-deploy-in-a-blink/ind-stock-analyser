@@ -64,11 +64,12 @@ class NewsParser:
             
             soup = BeautifulSoup(response.content, 'html.parser')
             
-            # Find news articles
+            # Find news articles using multiple selector strategies
             articles = []
-            headlines = soup.find_all('div', class_='SoaBEf')
             
-            for headline in headlines[:5]:  # Top 5 news
+            # Strategy 1: Primary Google News CSS class
+            headlines = soup.find_all('div', class_='SoaBEf')
+            for headline in headlines[:5]:
                 try:
                     title_elem = headline.find('div', class_='MBeuO')
                     if title_elem:
@@ -77,14 +78,38 @@ class NewsParser:
                 except Exception:
                     continue
             
+            # Strategy 2: role="heading" attribute
             if not articles:
-                # Try alternative structure
                 headlines = soup.find_all('div', {'role': 'heading'})
                 for headline in headlines[:5]:
                     try:
-                        title = headline.get_text()
-                        if len(title) > 20:  # Filter out noise
+                        title = headline.get_text().strip()
+                        if len(title) > 20:
                             articles.append(title)
+                    except Exception:
+                        continue
+            
+            # Strategy 3: h3 tags (common in Google search results)
+            if not articles:
+                headlines = soup.find_all('h3')
+                for headline in headlines[:5]:
+                    try:
+                        title = headline.get_text().strip()
+                        if len(title) > 20:
+                            articles.append(title)
+                    except Exception:
+                        continue
+            
+            # Strategy 4: Any link text with news-like content
+            if not articles:
+                for link in soup.find_all('a'):
+                    try:
+                        title = link.get_text().strip()
+                        title_lower = title.lower()
+                        if len(title) > 30 and symbol.lower() in title_lower:
+                            articles.append(title)
+                            if len(articles) >= 5:
+                                break
                     except Exception:
                         continue
             
@@ -149,9 +174,11 @@ class NewsParser:
         time.sleep(1)  # Rate limiting
         yahoo_sentiment = self.parse_yahoo_finance_news(symbol)
         
-        # Combine sentiments
-        all_headlines = google_sentiment['headlines'] + yahoo_sentiment['headlines']
-        combined_score = (google_sentiment['score'] + yahoo_sentiment['score']) / 2
+        # Combine sentiments (safely handle missing headlines key)
+        google_headlines = google_sentiment.get('headlines', [])
+        yahoo_headlines = yahoo_sentiment.get('headlines', [])
+        all_headlines = google_headlines + yahoo_headlines
+        combined_score = (google_sentiment.get('score', 0) + yahoo_sentiment.get('score', 0)) / 2
         
         # Determine momentum
         if combined_score > 0.15:
@@ -814,6 +841,9 @@ class IntegratedMarketAnalyzer:
             'verdict': verdict,
             'direction_accuracy': direction_pct,
             'profit_accuracy': profit_pct,
+            'success_rate': profit_pct,
+            'profitable_outcomes': profitable_scenarios,
+            'total_outcomes': total_scenarios,
             'scenarios_tested': total_scenarios,
             'reason': f'{profit_pct:.1f}% profitable scenarios, {direction_pct:.1f}% directional accuracy'
         }
@@ -850,6 +880,9 @@ class IntegratedMarketAnalyzer:
             'verdict': verdict,
             'direction_accuracy': direction_pct,
             'profit_accuracy': profit_pct,
+            'success_rate': profit_pct,
+            'profitable_outcomes': profitable_scenarios,
+            'total_outcomes': total_scenarios,
             'scenarios_tested': total_scenarios,
             'reason': f'{profit_pct:.1f}% profitable scenarios, {direction_pct:.1f}% directional accuracy'
         }
@@ -886,6 +919,9 @@ class IntegratedMarketAnalyzer:
             'verdict': verdict,
             'direction_accuracy': direction_pct,
             'profit_accuracy': profit_pct,
+            'success_rate': profit_pct,
+            'profitable_outcomes': profitable_scenarios,
+            'total_outcomes': total_scenarios,
             'scenarios_tested': total_scenarios,
             'reason': f'{profit_pct:.1f}% profitable scenarios, {direction_pct:.1f}% directional accuracy'
         }
@@ -924,6 +960,9 @@ class IntegratedMarketAnalyzer:
             'verdict': verdict,
             'direction_accuracy': direction_pct,
             'profit_accuracy': profit_pct,
+            'success_rate': profit_pct,
+            'profitable_outcomes': profitable_scenarios,
+            'total_outcomes': total_scenarios,
             'scenarios_tested': total_scenarios,
             'reason': f'{profit_pct:.1f}% profitable scenarios, {direction_pct:.1f}% directional accuracy'
         }
@@ -967,6 +1006,9 @@ class IntegratedMarketAnalyzer:
             'verdict': verdict,
             'volatility_accuracy': volatility_pct,
             'profit_accuracy': profit_pct,
+            'success_rate': profit_pct,
+            'profitable_outcomes': profitable_scenarios,
+            'total_outcomes': total_scenarios,
             'scenarios_tested': total_scenarios,
             'reason': f'{profit_pct:.1f}% profitable scenarios, {volatility_pct:.1f}% high volatility periods'
         }
@@ -1011,9 +1053,30 @@ class IntegratedMarketAnalyzer:
             'verdict': verdict,
             'low_volatility_accuracy': low_vol_pct,
             'profit_accuracy': profit_pct,
+            'success_rate': profit_pct,
+            'profitable_outcomes': profitable_scenarios,
+            'total_outcomes': total_scenarios,
             'scenarios_tested': total_scenarios,
             'reason': f'{profit_pct:.1f}% profitable scenarios, {low_vol_pct:.1f}% low volatility periods'
         }
+
+    def _extract_symbol_from_chain(self, option_chain: Dict, option_type: str = 'CE') -> str:
+        """Safely extract symbol name from option chain data"""
+        try:
+            data = option_chain.get('records', {}).get('data', [])
+            if data:
+                for record in data:
+                    sym = record.get(option_type, {}).get('underlying', '')
+                    if sym:
+                        return sym
+                    # Try the other option type as fallback
+                    other_type = 'PE' if option_type == 'CE' else 'CE'
+                    sym = record.get(other_type, {}).get('underlying', '')
+                    if sym:
+                        return sym
+        except Exception:
+            pass
+        return 'UNKNOWN'
 
     def generate_strategy(self, price_data: Dict, technical: Dict, confidence: int, symbol: str, option_chain: Optional[Dict] = None) -> Dict:
         """
@@ -1108,7 +1171,7 @@ class IntegratedMarketAnalyzer:
     
     def generate_bull_call_spread(self, spot_price: float, atm_strike: float, option_chain: Dict) -> Dict:
         """Bull Call Spread - Moderately bullish strategy with exact trade details"""
-        symbol = option_chain.get('records', {}).get('data', [{}])[0].get('CE', {}).get('underlying', 'UNKNOWN')
+        symbol = self._extract_symbol_from_chain(option_chain, 'CE')
         lot_size = get_lot_size(symbol)
         
         strike_interval = self.get_strike_interval(spot_price)
@@ -1193,7 +1256,7 @@ class IntegratedMarketAnalyzer:
     
     def generate_long_call_strategy(self, spot_price: float, atm_strike: float, option_chain: Dict) -> Dict:
         """Long Call - Strongly bullish strategy with exact trade details"""
-        symbol = option_chain.get('records', {}).get('data', [{}])[0].get('CE', {}).get('underlying', 'UNKNOWN')
+        symbol = self._extract_symbol_from_chain(option_chain, 'CE')
         lot_size = get_lot_size(symbol)
         
         strike = atm_strike
@@ -1271,7 +1334,7 @@ class IntegratedMarketAnalyzer:
     
     def generate_bear_put_spread(self, spot_price: float, atm_strike: float, option_chain: Dict) -> Dict:
         """Bear Put Spread - Moderately bearish strategy (FIXED: Proper calculations)"""
-        symbol = option_chain.get('records', {}).get('data', [{}])[0].get('PE', {}).get('underlying', 'UNKNOWN')
+        symbol = self._extract_symbol_from_chain(option_chain, 'PE')
         
         # Bear Put Spread: Buy higher strike PE, Sell lower strike PE
         strike_interval = self.get_strike_interval(spot_price)
@@ -1413,7 +1476,7 @@ class IntegratedMarketAnalyzer:
     
     def generate_long_put_strategy(self, spot_price: float, atm_strike: float, option_chain: Dict) -> Dict:
         """Long Put - Strongly bearish strategy"""
-        symbol = option_chain.get('records', {}).get('data', [{}])[0].get('PE', {}).get('underlying', 'UNKNOWN')
+        symbol = self._extract_symbol_from_chain(option_chain, 'PE')
         
         strike = atm_strike
         premium = self.get_option_premium(option_chain, strike, 'PE', spot_price)
@@ -1472,7 +1535,7 @@ class IntegratedMarketAnalyzer:
     
     def generate_long_straddle(self, spot_price: float, atm_strike: float, option_chain: Dict) -> Dict:
         """Long Straddle - High volatility expected"""
-        symbol = option_chain.get('records', {}).get('data', [{}])[0].get('CE', {}).get('underlying', 'UNKNOWN')
+        symbol = self._extract_symbol_from_chain(option_chain, 'CE')
         
         strike = atm_strike
         call_premium = self.get_option_premium(option_chain, strike, 'CE', spot_price)
@@ -1534,7 +1597,7 @@ class IntegratedMarketAnalyzer:
     
     def generate_iron_condor(self, spot_price: float, atm_strike: float, option_chain: Dict) -> Dict:
         """Iron Condor - ALWAYS generates strategy, never rejects (rejection only by final confidence)"""
-        symbol = option_chain.get('records', {}).get('data', [{}])[0].get('CE', {}).get('underlying', 'UNKNOWN')
+        symbol = self._extract_symbol_from_chain(option_chain, 'CE')
         
         # Iron Condor strikes using dynamic intervals
         strike_interval = self.get_strike_interval(spot_price)
@@ -1635,21 +1698,24 @@ class IntegratedMarketAnalyzer:
                             }
             
             # Fallback data with approximate premium
-            moneyness = strike / spot_price
-            if option_type == 'CE':  # Call
-                if moneyness < 0.98:  # ITM
-                    premium = max(spot_price - strike + 20, 5)
-                elif moneyness > 1.02:  # OTM
-                    premium = max(10, 50 - (strike - spot_price))
-                else:  # ATM
-                    premium = 25
-            else:  # Put
-                if moneyness > 1.02:  # ITM
-                    premium = max(strike - spot_price + 20, 5)
-                elif moneyness < 0.98:  # OTM
-                    premium = max(10, 50 - (spot_price - strike))
-                else:  # ATM
-                    premium = 25
+            if spot_price <= 0:
+                premium = 25  # Default ATM premium
+            else:
+                moneyness = strike / spot_price
+                if option_type == 'CE':  # Call
+                    if moneyness < 0.98:  # ITM
+                        premium = max(spot_price - strike + 20, 5)
+                    elif moneyness > 1.02:  # OTM
+                        premium = max(10, 50 - (strike - spot_price))
+                    else:  # ATM
+                        premium = 25
+                else:  # Put
+                    if moneyness > 1.02:  # ITM
+                        premium = max(strike - spot_price + 20, 5)
+                    elif moneyness < 0.98:  # OTM
+                        premium = max(10, 50 - (spot_price - strike))
+                    else:  # ATM
+                        premium = 25
                     
             return {
                 'lastPrice': premium,

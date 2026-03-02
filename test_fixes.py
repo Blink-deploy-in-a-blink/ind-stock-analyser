@@ -152,6 +152,101 @@ def test_atm_strike_calculation():
     assert atm == 100000.0
 
 
+def test_extract_symbol_from_chain():
+    """_extract_symbol_from_chain should safely extract symbol from option chain data"""
+    from market_analyzer_v5_integrated import IntegratedMarketAnalyzer
+    import unittest.mock as mock
+    
+    with mock.patch('market_analyzer_v5_integrated.NSEDataFetcher'):
+        analyzer = IntegratedMarketAnalyzer()
+    
+    # Test with valid data
+    option_chain = {
+        'records': {
+            'data': [
+                {'strikePrice': 100, 'CE': {'underlying': 'RELIANCE', 'lastPrice': 10}},
+                {'strikePrice': 110, 'PE': {'underlying': 'RELIANCE', 'lastPrice': 5}}
+            ]
+        }
+    }
+    assert analyzer._extract_symbol_from_chain(option_chain, 'CE') == 'RELIANCE'
+    assert analyzer._extract_symbol_from_chain(option_chain, 'PE') == 'RELIANCE'
+    
+    # Test with empty data array
+    empty_chain = {'records': {'data': []}}
+    assert analyzer._extract_symbol_from_chain(empty_chain, 'CE') == 'UNKNOWN'
+    
+    # Test with None/empty option chain
+    assert analyzer._extract_symbol_from_chain({}, 'CE') == 'UNKNOWN'
+    assert analyzer._extract_symbol_from_chain({'records': {}}, 'CE') == 'UNKNOWN'
+
+
+def test_option_premium_zero_spot_price():
+    """get_option_data should not crash when spot_price is 0"""
+    from market_analyzer_v5_integrated import IntegratedMarketAnalyzer
+    import unittest.mock as mock
+    
+    with mock.patch('market_analyzer_v5_integrated.NSEDataFetcher'):
+        analyzer = IntegratedMarketAnalyzer()
+    
+    # Empty option chain, spot_price=0 - should not raise ZeroDivisionError
+    empty_chain = {'records': {'data': []}}
+    result = analyzer.get_option_data(empty_chain, 100, 'CE', 0)
+    assert result['lastPrice'] == 25  # Default ATM premium
+    assert result['strike'] == 100
+
+
+def test_backtest_results_have_display_fields():
+    """Backtest results should include success_rate, profitable_outcomes, total_outcomes"""
+    from market_analyzer_v5_integrated import IntegratedMarketAnalyzer
+    import unittest.mock as mock
+    
+    with mock.patch('market_analyzer_v5_integrated.NSEDataFetcher'):
+        analyzer = IntegratedMarketAnalyzer()
+    
+    # Enough data for backtesting (10+ data points)
+    historical_data = {
+        'closes': [100 + i * 0.5 for i in range(20)],
+        'highs': [101 + i * 0.5 for i in range(20)],
+        'lows': [99 + i * 0.5 for i in range(20)],
+        'dates': [f'2025-01-{i+1:02d}' for i in range(20)]
+    }
+    
+    result = analyzer._backtest_bull_call_spread(historical_data, 100, 110, 5)
+    assert 'success_rate' in result
+    assert 'profitable_outcomes' in result
+    assert 'total_outcomes' in result
+    assert result['total_outcomes'] == 15  # 20 - 5
+
+
+def test_nse_fetcher_symbol_normalization():
+    """NSE fetcher should normalize symbols to uppercase"""
+    from nse_data_fetcher_clean import NSEDataFetcher
+    
+    # Verify INDEX_SYMBOLS is a class attribute
+    assert 'NIFTY' in NSEDataFetcher.INDEX_SYMBOLS
+    assert 'BANKNIFTY' in NSEDataFetcher.INDEX_SYMBOLS
+    assert 'FINNIFTY' in NSEDataFetcher.INDEX_SYMBOLS
+    assert 'MIDCPNIFTY' in NSEDataFetcher.INDEX_SYMBOLS
+    assert 'NIFTYNXT50' in NSEDataFetcher.INDEX_SYMBOLS
+
+
+def test_combined_sentiment_handles_missing_headlines():
+    """get_combined_sentiment should handle sentiments without 'headlines' key"""
+    from market_analyzer_v5_integrated import NewsParser
+    import unittest.mock as mock
+    
+    parser = NewsParser()
+    
+    # Mock both methods to return sentiment without headlines key
+    with mock.patch.object(parser, 'parse_google_news', return_value={'score': 0.5, 'momentum': 'POSITIVE'}):
+        with mock.patch.object(parser, 'parse_yahoo_finance_news', return_value={'score': -0.1, 'momentum': 'NEUTRAL'}):
+            result = parser.get_combined_sentiment('TEST')
+            assert 'headlines' in result
+            assert isinstance(result['headlines'], list)
+            assert result['score'] == 0.2  # (0.5 + -0.1) / 2
+
+
 if __name__ == '__main__':
     test_functions = [
         test_no_duplicate_fno_stocks,
@@ -162,6 +257,11 @@ if __name__ == '__main__':
         test_get_option_expiry,
         test_backtesting_handles_insufficient_data,
         test_atm_strike_calculation,
+        test_extract_symbol_from_chain,
+        test_option_premium_zero_spot_price,
+        test_backtest_results_have_display_fields,
+        test_nse_fetcher_symbol_normalization,
+        test_combined_sentiment_handles_missing_headlines,
     ]
     
     passed = 0
