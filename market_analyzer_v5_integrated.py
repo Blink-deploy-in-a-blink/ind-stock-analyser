@@ -276,6 +276,12 @@ class IntegratedMarketAnalyzer:
                 ticker = '^NSEI'  # NIFTY 50 index
             elif symbol == 'BANKNIFTY':
                 ticker = '^NSEBANK'  # Bank NIFTY index
+            elif symbol == 'FINNIFTY':
+                ticker = 'NIFTY_FIN_SERVICE.NS'  # Nifty Financial Services
+            elif symbol == 'MIDCPNIFTY':
+                ticker = 'NIFTY_MID_SELECT.NS'  # Nifty Midcap Select
+            elif symbol == 'NIFTYNXT50':
+                ticker = '^NSMIDCP'  # Nifty Next 50
             elif symbol.startswith('^'):
                 ticker = symbol  # Index symbols like ^NSEI
             else:
@@ -709,7 +715,11 @@ class IntegratedMarketAnalyzer:
             import yfinance as yf
             
             # Convert symbol to Yahoo Finance format
-            if symbol in ['NIFTY', 'BANKNIFTY', 'FINNIFTY']:
+            if symbol == 'NIFTY':
+                ticker = '^NSEI'
+            elif symbol == 'BANKNIFTY':
+                ticker = '^NSEBANK'
+            elif is_index(symbol):
                 ticker = symbol
             else:
                 ticker = f"{symbol}.NS"
@@ -1702,12 +1712,8 @@ class IntegratedMarketAnalyzer:
             return 25
         elif spot_price <= 5000:
             return 50
-        elif spot_price <= 10000:
-            return 100
         elif spot_price <= 25000:
             return 100
-        elif spot_price <= 50000:
-            return 500
         else:
             return 500
 
