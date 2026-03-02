@@ -3,7 +3,7 @@ Complete F&O Stocks and Indices List for Indian Market
 Last Updated: October 2024
 """
 
-# All NSE F&O Stocks (184+ stocks)
+# All NSE F&O Stocks (deduplicated)
 FNO_STOCKS = [
     # A
     'ACC', 'ADANIENT', 'ADANIPORTS', 'ABCAPITAL', 'ABFRL', 'ALKEM', 'AMBUJACEM',
@@ -60,32 +60,32 @@ FNO_STOCKS = [
     # U-Z
     'UBL', 'ULTRACEMCO', 'UPL', 'VEDL', 'VOLTAS', 'WIPRO', 'ZEEL', 'ZYDUSLIFE',
     
-    # Additional stocks with F&O
-    'AARTIIND', 'ABBOTINDIA', 'ABFRL', 'ADANIENSOL', 'ADANIGREEN', 'ADANIPOWER',
+    # Additional stocks with F&O (deduplicated)
+    'AARTIIND', 'ABBOTINDIA', 'ADANIENSOL', 'ADANIGREEN', 'ADANIPOWER',
     'AFFLE', 'AJANTPHARM', 'APLLTD', 'ANANDRATHI', 'APARINDS', 'ARE&M',
-    'ASTRAZEN', 'AWL', 'BAJAJHLDNG', 'BASF', 'BATAINDIA', 'BAYERCROP',
-    'BHARATFORG', 'BIKAJI', 'BLS', 'BRIGADE', 'BSE', 'CASTROLIND',
-    'CEATLTD', 'CENTURYTEX', 'CGPOWER', 'CLEAN', 'COALINDIA', 'GODREJIND',
-    'GODREJPROP', 'GRASIM', 'GSPL', 'GUJGASLTD', 'HAPPSTMNDS', 'HATSUN',
+    'ASTRAZEN', 'AWL', 'BAJAJHLDNG', 'BASF', 'BAYERCROP',
+    'BIKAJI', 'BLS', 'BRIGADE', 'BSE', 'CASTROLIND',
+    'CEATLTD', 'CENTURYTEX', 'CGPOWER', 'CLEAN', 'GODREJIND',
+    'GSPL', 'HAPPSTMNDS', 'HATSUN',
     'HONAUT', 'JBCHEPHARM', 'JKLAKSHMI', 'JKPAPER', 'JMFINANCIL', 'JSL',
     'KAJARIACER', 'KEI', 'KPITTECH', 'LICI', 'LODHA', 'MAHABANK',
-    'MANAPPURAM', 'MANYAVAR', 'MAXHEALTH', 'MEDANTA', 'NAM-INDIA',
-    'NATIONALUM', 'NAVINFLUOR', 'NSLNISP', 'OIL', 'PAYTM', 'PERSISTENT',
-    'PETRONET', 'PHOENIXLTD', 'PNBHOUSING', 'POONAWALLA', 'RAIN',
+    'MANYAVAR', 'MAXHEALTH', 'MEDANTA', 'NAM-INDIA',
+    'NSLNISP', 'OIL', 'PAYTM',
+    'PHOENIXLTD', 'PNBHOUSING', 'POONAWALLA', 'RAIN',
     'RAJESHEXPO', 'RKFORGE', 'RTNINDIA', 'SCHNEIDER', 'SHARDACROP',
     'SJVN', 'SONACOMS', 'STARHEALTH', 'SUMICHEM', 'SUPREMEIND',
     'SUZLON', 'SWANENERGY', 'SYMPHONY', 'TATACHEM', 'TATAELXSI',
     'TATATECH', 'TIINDIA', 'TIMKEN', 'TRIDENT', 'UNIONBANK',
-    'UNITDSPR', 'VBL', 'VEDL', 'WHIRLPOOL', 'YESBANK', 'ZFCVINDIA'
+    'UNITDSPR', 'VBL', 'WHIRLPOOL', 'YESBANK', 'ZFCVINDIA'
 ]
 
-# All NSE Indices with F&O
+# All NSE Indices with F&O (using NSE API format)
 FNO_INDICES = [
-    '^NSEI',        # Nifty 50
-    '^NSEBANK',     # Bank Nifty
-    'NIFTYFIN',     # Nifty Financial Services
-    'NIFTYMID',     # Nifty Midcap Select
-    'NIFTYIT',      # Nifty IT
+    'NIFTY',        # Nifty 50
+    'BANKNIFTY',    # Bank Nifty
+    'FINNIFTY',     # Nifty Financial Services
+    'MIDCPNIFTY',   # Nifty Midcap Select
+    'NIFTYNXT50',   # Nifty Next 50
 ]
 
 # Get all symbols (stocks + indices)
