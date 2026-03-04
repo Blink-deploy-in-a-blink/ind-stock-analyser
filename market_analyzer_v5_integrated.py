@@ -64,28 +64,53 @@ class NewsParser:
             
             soup = BeautifulSoup(response.content, 'html.parser')
             
-            # Find news articles
+            # Find news articles using multiple selector strategies
             articles = []
-            headlines = soup.find_all('div', class_='SoaBEf')
             
-            for headline in headlines[:5]:  # Top 5 news
+            # Strategy 1: Primary Google News CSS class
+            headlines = soup.find_all('div', class_='SoaBEf')
+            for headline in headlines[:5]:
                 try:
                     title_elem = headline.find('div', class_='MBeuO')
                     if title_elem:
                         title = title_elem.get_text()
                         articles.append(title)
-                except:
+                except Exception:
                     continue
             
+            # Strategy 2: role="heading" attribute
             if not articles:
-                # Try alternative structure
                 headlines = soup.find_all('div', {'role': 'heading'})
                 for headline in headlines[:5]:
                     try:
-                        title = headline.get_text()
-                        if len(title) > 20:  # Filter out noise
+                        title = headline.get_text().strip()
+                        if len(title) > 20:
                             articles.append(title)
-                    except:
+                    except Exception:
+                        continue
+            
+            # Strategy 3: h3 tags (common in Google search results)
+            if not articles:
+                headlines = soup.find_all('h3')
+                for headline in headlines[:5]:
+                    try:
+                        title = headline.get_text().strip()
+                        if len(title) > 20:
+                            articles.append(title)
+                    except Exception:
+                        continue
+            
+            # Strategy 4: Any link text with news-like content
+            if not articles:
+                for link in soup.find_all('a'):
+                    try:
+                        title = link.get_text().strip()
+                        title_lower = title.lower()
+                        if len(title) > 30 and symbol.lower() in title_lower:
+                            articles.append(title)
+                            if len(articles) >= 5:
+                                break
+                    except Exception:
                         continue
             
             # Analyze sentiment from headlines
@@ -127,7 +152,7 @@ class NewsParser:
                     title = item.get_text().strip()
                     if len(title) > 20:
                         articles.append(title)
-                except:
+                except Exception:
                     continue
             
             # Analyze sentiment
@@ -149,9 +174,11 @@ class NewsParser:
         time.sleep(1)  # Rate limiting
         yahoo_sentiment = self.parse_yahoo_finance_news(symbol)
         
-        # Combine sentiments
-        all_headlines = google_sentiment['headlines'] + yahoo_sentiment['headlines']
-        combined_score = (google_sentiment['score'] + yahoo_sentiment['score']) / 2
+        # Combine sentiments (safely handle missing headlines key)
+        google_headlines = google_sentiment.get('headlines', [])
+        yahoo_headlines = yahoo_sentiment.get('headlines', [])
+        all_headlines = google_headlines + yahoo_headlines
+        combined_score = (google_sentiment.get('score', 0) + yahoo_sentiment.get('score', 0)) / 2
         
         # Determine momentum
         if combined_score > 0.15:
@@ -276,6 +303,12 @@ class IntegratedMarketAnalyzer:
                 ticker = '^NSEI'  # NIFTY 50 index
             elif symbol == 'BANKNIFTY':
                 ticker = '^NSEBANK'  # Bank NIFTY index
+            elif symbol == 'FINNIFTY':
+                ticker = 'NIFTY_FIN_SERVICE.NS'  # Nifty Financial Services
+            elif symbol == 'MIDCPNIFTY':
+                ticker = 'NIFTY_MID_SELECT.NS'  # Nifty Midcap Select
+            elif symbol == 'NIFTYNXT50':
+                ticker = '^NSMIDCP'  # Nifty Next 50
             elif symbol.startswith('^'):
                 ticker = symbol  # Index symbols like ^NSEI
             else:
@@ -400,9 +433,9 @@ class IntegratedMarketAnalyzer:
             
             return None
             
-        except:
+        except Exception:
             return None
-    
+
     def calculate_technical_indicators(self, data: Dict) -> Dict:
         """Calculate RSI, moving averages, etc."""
         # Try to get historical closes from the data
@@ -709,7 +742,11 @@ class IntegratedMarketAnalyzer:
             import yfinance as yf
             
             # Convert symbol to Yahoo Finance format
-            if symbol in ['NIFTY', 'BANKNIFTY', 'FINNIFTY']:
+            if symbol == 'NIFTY':
+                ticker = '^NSEI'
+            elif symbol == 'BANKNIFTY':
+                ticker = '^NSEBANK'
+            elif is_index(symbol):
                 ticker = symbol
             else:
                 ticker = f"{symbol}.NS"
@@ -758,6 +795,8 @@ class IntegratedMarketAnalyzer:
         
         results = []
         total_scenarios = len(historical_data['closes']) - 5
+        if total_scenarios <= 0:
+            return {'score': 42, 'verdict': 'NO_DATA', 'reason': 'Insufficient historical data for backtesting'}
         
         for i in range(total_scenarios):
             entry_price = historical_data['closes'][i]
@@ -802,6 +841,9 @@ class IntegratedMarketAnalyzer:
             'verdict': verdict,
             'direction_accuracy': direction_pct,
             'profit_accuracy': profit_pct,
+            'success_rate': profit_pct,
+            'profitable_outcomes': profitable_scenarios,
+            'total_outcomes': total_scenarios,
             'scenarios_tested': total_scenarios,
             'reason': f'{profit_pct:.1f}% profitable scenarios, {direction_pct:.1f}% directional accuracy'
         }
@@ -812,6 +854,8 @@ class IntegratedMarketAnalyzer:
         directional_accuracy = 0
         
         total_scenarios = len(historical_data['closes']) - 5
+        if total_scenarios <= 0:
+            return {'score': 42, 'verdict': 'NO_DATA', 'reason': 'Insufficient historical data for backtesting'}
         
         for i in range(total_scenarios):
             entry_price = historical_data['closes'][i]
@@ -836,6 +880,9 @@ class IntegratedMarketAnalyzer:
             'verdict': verdict,
             'direction_accuracy': direction_pct,
             'profit_accuracy': profit_pct,
+            'success_rate': profit_pct,
+            'profitable_outcomes': profitable_scenarios,
+            'total_outcomes': total_scenarios,
             'scenarios_tested': total_scenarios,
             'reason': f'{profit_pct:.1f}% profitable scenarios, {direction_pct:.1f}% directional accuracy'
         }
@@ -846,6 +893,8 @@ class IntegratedMarketAnalyzer:
         directional_accuracy = 0
         
         total_scenarios = len(historical_data['closes']) - 5
+        if total_scenarios <= 0:
+            return {'score': 42, 'verdict': 'NO_DATA', 'reason': 'Insufficient historical data for backtesting'}
         
         for i in range(total_scenarios):
             entry_price = historical_data['closes'][i]
@@ -870,6 +919,9 @@ class IntegratedMarketAnalyzer:
             'verdict': verdict,
             'direction_accuracy': direction_pct,
             'profit_accuracy': profit_pct,
+            'success_rate': profit_pct,
+            'profitable_outcomes': profitable_scenarios,
+            'total_outcomes': total_scenarios,
             'scenarios_tested': total_scenarios,
             'reason': f'{profit_pct:.1f}% profitable scenarios, {direction_pct:.1f}% directional accuracy'
         }
@@ -880,6 +932,8 @@ class IntegratedMarketAnalyzer:
         directional_accuracy = 0
         
         total_scenarios = len(historical_data['closes']) - 5
+        if total_scenarios <= 0:
+            return {'score': 42, 'verdict': 'NO_DATA', 'reason': 'Insufficient historical data for backtesting'}
         
         for i in range(total_scenarios):
             entry_price = historical_data['closes'][i]
@@ -906,6 +960,9 @@ class IntegratedMarketAnalyzer:
             'verdict': verdict,
             'direction_accuracy': direction_pct,
             'profit_accuracy': profit_pct,
+            'success_rate': profit_pct,
+            'profitable_outcomes': profitable_scenarios,
+            'total_outcomes': total_scenarios,
             'scenarios_tested': total_scenarios,
             'reason': f'{profit_pct:.1f}% profitable scenarios, {direction_pct:.1f}% directional accuracy'
         }
@@ -916,6 +973,8 @@ class IntegratedMarketAnalyzer:
         volatility_scenarios = 0
         
         total_scenarios = len(historical_data['closes']) - 5
+        if total_scenarios <= 0:
+            return {'score': 42, 'verdict': 'NO_DATA', 'reason': 'Insufficient historical data for backtesting'}
         
         for i in range(total_scenarios):
             entry_price = historical_data['closes'][i]
@@ -947,6 +1006,9 @@ class IntegratedMarketAnalyzer:
             'verdict': verdict,
             'volatility_accuracy': volatility_pct,
             'profit_accuracy': profit_pct,
+            'success_rate': profit_pct,
+            'profitable_outcomes': profitable_scenarios,
+            'total_outcomes': total_scenarios,
             'scenarios_tested': total_scenarios,
             'reason': f'{profit_pct:.1f}% profitable scenarios, {volatility_pct:.1f}% high volatility periods'
         }
@@ -957,6 +1019,8 @@ class IntegratedMarketAnalyzer:
         low_volatility_scenarios = 0
         
         total_scenarios = len(historical_data['closes']) - 5
+        if total_scenarios <= 0:
+            return {'score': 42, 'verdict': 'NO_DATA', 'reason': 'Insufficient historical data for backtesting'}
         
         # Iron Condor profit zone (between inner strikes)
         lower_breakeven = center_strike - wing_width + net_credit
@@ -989,9 +1053,30 @@ class IntegratedMarketAnalyzer:
             'verdict': verdict,
             'low_volatility_accuracy': low_vol_pct,
             'profit_accuracy': profit_pct,
+            'success_rate': profit_pct,
+            'profitable_outcomes': profitable_scenarios,
+            'total_outcomes': total_scenarios,
             'scenarios_tested': total_scenarios,
             'reason': f'{profit_pct:.1f}% profitable scenarios, {low_vol_pct:.1f}% low volatility periods'
         }
+
+    def _extract_symbol_from_chain(self, option_chain: Dict, option_type: str = 'CE') -> str:
+        """Safely extract symbol name from option chain data"""
+        try:
+            data = option_chain.get('records', {}).get('data', [])
+            if data:
+                for record in data:
+                    sym = record.get(option_type, {}).get('underlying', '')
+                    if sym:
+                        return sym
+                    # Try the other option type as fallback
+                    other_type = 'PE' if option_type == 'CE' else 'CE'
+                    sym = record.get(other_type, {}).get('underlying', '')
+                    if sym:
+                        return sym
+        except Exception:
+            pass
+        return 'UNKNOWN'
 
     def generate_strategy(self, price_data: Dict, technical: Dict, confidence: int, symbol: str, option_chain: Optional[Dict] = None) -> Dict:
         """
@@ -1014,8 +1099,8 @@ class IntegratedMarketAnalyzer:
             'rsi': rsi,
             'trend': trend,
             'price_change': price_change,
-            '52w_high': price_data.get('yearHigh', current_price * 1.2),
-            '52w_low': price_data.get('yearLow', current_price * 0.8)
+            '52w_high': price_data.get('high_52w', current_price * 1.2),
+            '52w_low': price_data.get('low_52w', current_price * 0.8)
         }
         
         # CRITICAL: No strategy without real option chain data
@@ -1030,8 +1115,9 @@ class IntegratedMarketAnalyzer:
                 'outlook': 'Cash market only'
             }
         
-        # Calculate ATM strike
-        atm_strike = round(current_price / 50) * 50
+        # Calculate ATM strike using dynamic interval based on price
+        strike_interval = self.get_strike_interval(current_price)
+        atm_strike = round(current_price / strike_interval) * strike_interval
         
         # IMPROVED Strategy selection - More practical conditions
         
@@ -1080,16 +1166,17 @@ class IntegratedMarketAnalyzer:
                 'max_profit': 0,
                 'max_loss': 0,
                 'risk_reward': 0,
-                    'outlook': 'Wait for clear signal'
-                }
+                'outlook': 'Wait for clear signal'
+            }
     
     def generate_bull_call_spread(self, spot_price: float, atm_strike: float, option_chain: Dict) -> Dict:
         """Bull Call Spread - Moderately bullish strategy with exact trade details"""
-        symbol = option_chain.get('records', {}).get('data', [{}])[0].get('CE', {}).get('underlying', 'UNKNOWN')
+        symbol = self._extract_symbol_from_chain(option_chain, 'CE')
         lot_size = get_lot_size(symbol)
         
+        strike_interval = self.get_strike_interval(spot_price)
         buy_strike = atm_strike
-        sell_strike = atm_strike + 100  # 100 points OTM
+        sell_strike = atm_strike + strike_interval * 2  # 2 intervals OTM
         
         # Get real option data
         buy_option = self.get_option_data(option_chain, buy_strike, 'CE', spot_price)
@@ -1169,7 +1256,7 @@ class IntegratedMarketAnalyzer:
     
     def generate_long_call_strategy(self, spot_price: float, atm_strike: float, option_chain: Dict) -> Dict:
         """Long Call - Strongly bullish strategy with exact trade details"""
-        symbol = option_chain.get('records', {}).get('data', [{}])[0].get('CE', {}).get('underlying', 'UNKNOWN')
+        symbol = self._extract_symbol_from_chain(option_chain, 'CE')
         lot_size = get_lot_size(symbol)
         
         strike = atm_strike
@@ -1247,11 +1334,12 @@ class IntegratedMarketAnalyzer:
     
     def generate_bear_put_spread(self, spot_price: float, atm_strike: float, option_chain: Dict) -> Dict:
         """Bear Put Spread - Moderately bearish strategy (FIXED: Proper calculations)"""
-        symbol = option_chain.get('records', {}).get('data', [{}])[0].get('PE', {}).get('underlying', 'UNKNOWN')
+        symbol = self._extract_symbol_from_chain(option_chain, 'PE')
         
         # Bear Put Spread: Buy higher strike PE, Sell lower strike PE
-        buy_strike = atm_strike + 50   # Buy higher strike (more expensive)
-        sell_strike = atm_strike - 50  # Sell lower strike (less expensive)
+        strike_interval = self.get_strike_interval(spot_price)
+        buy_strike = atm_strike + strike_interval   # Buy higher strike (more expensive)
+        sell_strike = atm_strike - strike_interval   # Sell lower strike (less expensive)
         
         try:
             buy_premium = self.get_option_premium(option_chain, buy_strike, 'PE', spot_price)
@@ -1316,8 +1404,8 @@ class IntegratedMarketAnalyzer:
         
         risk_reward = max_profit_per_lot / max_loss_per_lot if max_loss_per_lot > 0 else 0
         
-        # Risk:reward validation
-        if risk_reward < 0.3:  # At least 1:3 risk:reward minimum
+        # Risk:reward validation (reject if reward is less than 50% of risk)
+        if risk_reward < 0.5:
             return {
                 'name': 'Strategy Rejected',
                 'action': f'Bear Put Spread rejected - poor risk:reward ratio of 1:{risk_reward:.2f}',
@@ -1326,7 +1414,7 @@ class IntegratedMarketAnalyzer:
                 'max_loss': 0,
                 'risk_reward': risk_reward,
                 'outlook': 'Risk too high for potential reward',
-                'rejection_reason': f'Risk:Reward 1:{risk_reward:.2f} is below minimum 1:0.3'
+                'rejection_reason': f'Risk:Reward 1:{risk_reward:.2f} is below minimum 1:0.5'
             }
         
         # Practical backtesting validation for Bear Put Spread
@@ -1388,7 +1476,7 @@ class IntegratedMarketAnalyzer:
     
     def generate_long_put_strategy(self, spot_price: float, atm_strike: float, option_chain: Dict) -> Dict:
         """Long Put - Strongly bearish strategy"""
-        symbol = option_chain.get('records', {}).get('data', [{}])[0].get('PE', {}).get('underlying', 'UNKNOWN')
+        symbol = self._extract_symbol_from_chain(option_chain, 'PE')
         
         strike = atm_strike
         premium = self.get_option_premium(option_chain, strike, 'PE', spot_price)
@@ -1420,8 +1508,10 @@ class IntegratedMarketAnalyzer:
                 'rejection_reason': backtesting_result.get('reason', 'Failed backtesting validation')
             }
         
-        quantity = min(100, 45000 // (premium * 50))
-        investment = quantity * premium * 50
+        lot_size = get_lot_size(symbol)
+        quantity = min(100, int(45000 // (premium * lot_size))) if premium * lot_size > 0 else 1
+        quantity = max(1, quantity)
+        investment = quantity * premium * lot_size
         max_loss = investment
         
         strategy_dict = {
@@ -1429,11 +1519,12 @@ class IntegratedMarketAnalyzer:
             'action': f'BUY {strike} PE @ ₹{premium:.1f}',
             'strikes': f'{strike} PE (Buy)',
             'investment': investment,
-            'max_profit': quantity * (strike - premium) * 50,
+            'max_profit': quantity * (strike - premium) * lot_size,
             'max_loss': max_loss,
             'risk_reward': 3.0,
             'outlook': 'Strongly Bearish',
-            'quantity': quantity
+            'quantity': quantity,
+            'lot_size': lot_size
         }
         
         # Add backtesting results
@@ -1444,7 +1535,7 @@ class IntegratedMarketAnalyzer:
     
     def generate_long_straddle(self, spot_price: float, atm_strike: float, option_chain: Dict) -> Dict:
         """Long Straddle - High volatility expected"""
-        symbol = option_chain.get('records', {}).get('data', [{}])[0].get('CE', {}).get('underlying', 'UNKNOWN')
+        symbol = self._extract_symbol_from_chain(option_chain, 'CE')
         
         strike = atm_strike
         call_premium = self.get_option_premium(option_chain, strike, 'CE', spot_price)
@@ -1479,8 +1570,10 @@ class IntegratedMarketAnalyzer:
                 'rejection_reason': backtesting_result.get('reason', 'Failed backtesting validation')
             }
         
-        quantity = min(50, 45000 // (total_premium * 50))  # Smaller quantity due to higher cost
-        investment = quantity * total_premium * 50
+        lot_size = get_lot_size(symbol)
+        quantity = min(50, int(45000 // (total_premium * lot_size))) if total_premium * lot_size > 0 else 1
+        quantity = max(1, quantity)
+        investment = quantity * total_premium * lot_size
         max_loss = investment
         
         strategy_dict = {
@@ -1492,7 +1585,8 @@ class IntegratedMarketAnalyzer:
             'max_loss': max_loss,
             'risk_reward': 4.0,
             'outlook': 'High Volatility Expected',
-            'quantity': quantity
+            'quantity': quantity,
+            'lot_size': lot_size
         }
         
         # Add backtesting results
@@ -1503,14 +1597,15 @@ class IntegratedMarketAnalyzer:
     
     def generate_iron_condor(self, spot_price: float, atm_strike: float, option_chain: Dict) -> Dict:
         """Iron Condor - ALWAYS generates strategy, never rejects (rejection only by final confidence)"""
-        symbol = option_chain.get('records', {}).get('data', [{}])[0].get('CE', {}).get('underlying', 'UNKNOWN')
+        symbol = self._extract_symbol_from_chain(option_chain, 'CE')
         
-        # Iron Condor strikes 
-        wing_width = 100
-        sell_call_strike = atm_strike + 50   
-        buy_call_strike = atm_strike + 150   
-        sell_put_strike = atm_strike - 50      
-        buy_put_strike = atm_strike - 150    
+        # Iron Condor strikes using dynamic intervals
+        strike_interval = self.get_strike_interval(spot_price)
+        wing_width = strike_interval * 2
+        sell_call_strike = atm_strike + strike_interval
+        buy_call_strike = atm_strike + strike_interval * 3
+        sell_put_strike = atm_strike - strike_interval
+        buy_put_strike = atm_strike - strike_interval * 3
         
         # Get option premiums (use defaults if not available)
         try:
@@ -1518,8 +1613,7 @@ class IntegratedMarketAnalyzer:
             buy_call_premium = self.get_option_premium(option_chain, buy_call_strike, 'CE', spot_price)
             sell_put_premium = self.get_option_premium(option_chain, sell_put_strike, 'PE', spot_price)
             buy_put_premium = self.get_option_premium(option_chain, buy_put_strike, 'PE', spot_price)
-        except:
-            # Use reasonable defaults if premium fetch fails
+        except Exception:
             sell_call_premium = 15
             buy_call_premium = 5
             sell_put_premium = 15
@@ -1560,8 +1654,8 @@ class IntegratedMarketAnalyzer:
         lot_size = get_lot_size(symbol)
         quantity = 2  # Fixed quantity for simplicity
         
-        # Get expiry
-        expiry_date = "Oct-2025"  # Default expiry
+        # Get expiry from option chain
+        expiry_date = self.get_option_expiry(option_chain)
         
         # Calculate totals
         total_credit = quantity * lot_size * net_credit_per_lot
@@ -1604,21 +1698,24 @@ class IntegratedMarketAnalyzer:
                             }
             
             # Fallback data with approximate premium
-            moneyness = strike / spot_price
-            if option_type == 'CE':  # Call
-                if moneyness < 0.98:  # ITM
-                    premium = max(spot_price - strike + 20, 5)
-                elif moneyness > 1.02:  # OTM
-                    premium = max(10, 50 - (strike - spot_price))
-                else:  # ATM
-                    premium = 25
-            else:  # Put
-                if moneyness > 1.02:  # ITM
-                    premium = max(strike - spot_price + 20, 5)
-                elif moneyness < 0.98:  # OTM
-                    premium = max(10, 50 - (spot_price - strike))
-                else:  # ATM
-                    premium = 25
+            if spot_price <= 0:
+                premium = 25  # Default ATM premium
+            else:
+                moneyness = strike / spot_price
+                if option_type == 'CE':  # Call
+                    if moneyness < 0.98:  # ITM
+                        premium = max(spot_price - strike + 20, 5)
+                    elif moneyness > 1.02:  # OTM
+                        premium = max(10, 50 - (strike - spot_price))
+                    else:  # ATM
+                        premium = 25
+                else:  # Put
+                    if moneyness > 1.02:  # ITM
+                        premium = max(strike - spot_price + 20, 5)
+                    elif moneyness < 0.98:  # OTM
+                        premium = max(10, 50 - (spot_price - strike))
+                    else:  # ATM
+                        premium = 25
                     
             return {
                 'lastPrice': premium,
@@ -1650,7 +1747,42 @@ class IntegratedMarketAnalyzer:
         """Extract option premium from option chain data (backward compatibility)"""
         option_data = self.get_option_data(option_chain, strike, option_type, spot_price)
         return option_data['lastPrice']
-    
+
+    def get_option_expiry(self, option_chain: Dict) -> str:
+        """Extract nearest expiry date from option chain data"""
+        try:
+            if option_chain and 'records' in option_chain:
+                expiry_dates = option_chain['records'].get('expiryDates', [])
+                if expiry_dates:
+                    return expiry_dates[0]
+                for record in option_chain['records'].get('data', []):
+                    ce_expiry = record.get('CE', {}).get('expiryDate', '')
+                    if ce_expiry:
+                        return ce_expiry
+                    pe_expiry = record.get('PE', {}).get('expiryDate', '')
+                    if pe_expiry:
+                        return pe_expiry
+        except Exception:
+            pass
+        return 'N/A'
+
+    def get_strike_interval(self, spot_price: float) -> float:
+        """Calculate appropriate strike interval based on price level"""
+        if spot_price <= 100:
+            return 2.5
+        elif spot_price <= 500:
+            return 5
+        elif spot_price <= 1000:
+            return 10
+        elif spot_price <= 2500:
+            return 25
+        elif spot_price <= 5000:
+            return 50
+        elif spot_price <= 25000:
+            return 100
+        else:
+            return 500
+
     def check_volume_volatility(self, option_chain: Dict, symbol: str) -> str:
         """Check if there's high volume activity indicating volatility"""
         if not option_chain or not option_chain.get('records', {}).get('data'):
@@ -1658,15 +1790,19 @@ class IntegratedMarketAnalyzer:
         
         # Get total volume for ATM and nearby strikes
         spot_price = option_chain['records'].get('underlyingValue', 0)
-        atm_strike = round(spot_price / 50) * 50
+        if spot_price <= 0:
+            return 'LOW'
+        strike_interval = self.get_strike_interval(spot_price)
+        atm_strike = round(spot_price / strike_interval) * strike_interval
         
         total_volume = 0
         total_oi = 0
         strike_count = 0
         
+        nearby_range = strike_interval * 4  # 4 intervals around ATM
         for record in option_chain['records'].get('data', []):
             strike = record.get('strikePrice', 0)
-            if abs(strike - atm_strike) <= 200:  # Within 200 points of ATM
+            if abs(strike - atm_strike) <= nearby_range:
                 ce_data = record.get('CE', {})
                 pe_data = record.get('PE', {})
                 
@@ -1764,7 +1900,8 @@ class IntegratedMarketAnalyzer:
         # Option Chain Volume Analysis (20 points max) - NEW
         if option_chain and 'records' in option_chain:
             spot_price = option_chain['records'].get('underlyingValue', price_data.get('current_price', 0))
-            atm_strike = round(spot_price / 50) * 50
+            strike_interval = self.get_strike_interval(spot_price) if spot_price > 0 else 50
+            atm_strike = round(spot_price / strike_interval) * strike_interval if spot_price > 0 else 0
             
             # Find ATM and nearby strikes
             call_volume = 0
@@ -1772,9 +1909,10 @@ class IntegratedMarketAnalyzer:
             call_oi = 0
             put_oi = 0
             
+            nearby_range = strike_interval * 2
             for record in option_chain['records'].get('data', []):
                 strike = record.get('strikePrice', 0)
-                if abs(strike - atm_strike) <= 100:  # Within 100 points of ATM
+                if abs(strike - atm_strike) <= nearby_range:
                     ce_data = record.get('CE', {})
                     pe_data = record.get('PE', {})
                     

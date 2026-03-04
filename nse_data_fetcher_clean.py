@@ -14,6 +14,9 @@ from typing import Dict, List, Optional
 class NSEDataFetcher:
     """Clean NSE data fetcher using proven API endpoints"""
     
+    # Known NSE F&O index symbols
+    INDEX_SYMBOLS = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'NIFTYNXT50']
+    
     def __init__(self):
         # Proven URLs from working analyzer
         self.url_oc = "https://www.nseindia.com/option-chain"
@@ -32,41 +35,98 @@ class NSEDataFetcher:
         self.session = requests.Session()
         self.session.headers.update(self.headers)
         self.cookies = {}
+        self._session_initialized = False
         
         # Initialize session by getting cookies
         self._init_session()
     
     def _init_session(self):
-        """Initialize session with NSE Option Chain page to get cookies (proven method)"""
+        """Initialize session with NSE Option Chain page to get cookies"""
         try:
             print("📡 Initializing NSE session...")
             
-            # Visit option-chain page to get cookies (proven working method)
-            request = self.session.get(self.url_oc, headers=self.headers, timeout=5)
+            request = self.session.get(self.url_oc, headers=self.headers, timeout=10)
             self.cookies = dict(request.cookies)
             
-            if request.status_code == 200:
+            if request.status_code == 200 and self.cookies:
                 print("✅ NSE session initialized with cookies")
+                self._session_initialized = True
+                return True
+            elif request.status_code == 200:
+                print("⚠️  NSE returned 200 but no cookies received")
+                self._session_initialized = True
                 return True
             else:
                 print(f"⚠️  NSE session returned {request.status_code}")
-                return True  # Continue anyway
+                return False
                 
+        except requests.exceptions.ConnectionError:
+            print("⚠️  Cannot connect to NSE - check internet connection")
+            self.cookies = {}
+            return False
+        except requests.exceptions.Timeout:
+            print("⚠️  NSE session initialization timed out")
+            self.cookies = {}
+            return False
         except Exception as e:
             print(f"⚠️  NSE session initialization error: {str(e)}")
             self.cookies = {}
-            return True
+            return False
     
     def _refresh_session(self):
         """Refresh session cookies when needed"""
         try:
             print("🔄 Refreshing NSE session...")
-            request = self.session.get(self.url_oc, headers=self.headers, timeout=5)
+            request = self.session.get(self.url_oc, headers=self.headers, timeout=10)
             self.cookies = dict(request.cookies)
-            print("✅ Session cookies refreshed")
+            if self.cookies:
+                print("✅ Session cookies refreshed")
+                self._session_initialized = True
+            else:
+                print("⚠️  Session refresh returned no cookies")
         except Exception as e:
             print(f"⚠️  Failed to refresh session: {str(e)}")
             self.cookies = {}
+    
+    def _request_with_retry(self, url: str, max_retries: int = 3) -> Optional[requests.Response]:
+        """Make HTTP request with retry logic and exponential backoff"""
+        for attempt in range(max_retries):
+            try:
+                response = self.session.get(
+                    url, headers=self.headers, timeout=10, cookies=self.cookies
+                )
+                
+                if response.status_code == 200:
+                    return response
+                elif response.status_code == 401:
+                    print(f"🔄 Session expired (attempt {attempt + 1}), refreshing...")
+                    self._refresh_session()
+                elif response.status_code == 403:
+                    print(f"⚠️  Access forbidden (attempt {attempt + 1}) - may be rate limited")
+                    wait_time = 2 ** (attempt + 1)
+                    time.sleep(wait_time)
+                    self._refresh_session()
+                elif response.status_code == 429:
+                    wait_time = 2 ** (attempt + 2)  # Longer wait for rate limits
+                    print(f"⚠️  Rate limited (attempt {attempt + 1}), waiting {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    print(f"⚠️  NSE API returned {response.status_code} (attempt {attempt + 1})")
+                    
+            except requests.exceptions.Timeout:
+                wait_time = 2 ** attempt
+                print(f"⚠️  Request timeout (attempt {attempt + 1}), retrying in {wait_time}s...")
+                time.sleep(wait_time)
+            except requests.exceptions.ConnectionError:
+                print(f"⚠️  Connection error (attempt {attempt + 1})")
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+            except Exception as e:
+                print(f"⚠️  Request error (attempt {attempt + 1}): {str(e)}")
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+        
+        return None
     
     def get_symbols(self) -> Dict[str, List[str]]:
         """
@@ -76,13 +136,17 @@ class NSEDataFetcher:
         Returns: Dict with 'indices' and 'stocks' lists
         """
         try:
-            response = self.session.get(self.url_symbols, headers=self.headers, timeout=5, cookies=self.cookies)
+            response = self._request_with_retry(self.url_symbols)
             
-            if response.status_code == 200:
+            if response and response.status_code == 200:
                 json_data = response.json()
                 
-                indices = [item['symbol'] for item in json_data['data']['IndexList']]
-                stocks = [item['symbol'] for item in json_data['data']['UnderlyingList']]
+                data = json_data.get('data', {})
+                index_list = data.get('IndexList', [])
+                underlying_list = data.get('UnderlyingList', [])
+                
+                indices = [item.get('symbol', '') for item in index_list if item.get('symbol')]
+                stocks = [item.get('symbol', '') for item in underlying_list if item.get('symbol')]
                 
                 print(f"✅ Fetched {len(indices)} indices and {len(stocks)} stocks")
                 return {
@@ -90,7 +154,7 @@ class NSEDataFetcher:
                     'stocks': stocks
                 }
             else:
-                print(f"⚠️  Failed to fetch symbols: {response.status_code}")
+                print(f"⚠️  Failed to fetch symbols from NSE")
                 return {'indices': [], 'stocks': []}
                 
         except Exception as e:
@@ -103,48 +167,52 @@ class NSEDataFetcher:
         
         API: https://www.nseindia.com/api/option-chain-indices?symbol=NIFTY (for indices)
              https://www.nseindia.com/api/option-chain-equities?symbol=RELIANCE (for stocks)
-        Method: Direct JSON API call with session cookies (proven working method)
+        Method: Direct JSON API call with session cookies
         Data: Complete option chain with CE/PE data, underlying price, volumes
         Cost: FREE - official NSE API
         """
         try:
-            # Determine if symbol is index or stock (proven detection method)
-            indices = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'NIFTYNXT50']
-            is_index = symbol.upper() in indices
+            # Validate and normalize symbol
+            if not symbol or not symbol.strip():
+                print(f"❌ Invalid symbol: '{symbol}'")
+                return None
             
-            # Use appropriate API endpoint (proven URLs)
+            symbol = symbol.strip().upper()
+            
+            # Determine if symbol is index or stock
+            is_index = symbol in self.INDEX_SYMBOLS
+            
+            # Use appropriate API endpoint
             if is_index:
                 url = f"{self.url_index}{symbol}"
             else:
                 url = f"{self.url_stock}{symbol}"
             
-            # Add delay to avoid rate limiting (proven timing)
+            # Add delay to avoid rate limiting
             time.sleep(0.5)
             
-            # Make API request with cookies (proven method)
-            response = self.session.get(url, headers=self.headers, timeout=10, cookies=self.cookies)
+            # Make API request with retry logic
+            response = self._request_with_retry(url)
             
-            # Handle 401 (unauthorized) by refreshing session (proven error handling)
-            if response.status_code == 401:
-                print("🔄 Session expired, refreshing cookies...")
-                self._refresh_session()
-                response = self.session.get(url, headers=self.headers, timeout=10, cookies=self.cookies)
-            
-            if response.status_code == 200:
+            if response and response.status_code == 200:
                 json_data = response.json()
                 
-                # Validate response structure (proven validation)
-                if 'records' in json_data and 'data' in json_data['records']:
-                    num_strikes = len(json_data['records']['data'])
+                # Validate response structure
+                records = json_data.get('records', {})
+                if records and 'data' in records:
+                    num_strikes = len(records['data'])
                     print(f"✅ Fetched option chain for {symbol} with {num_strikes} strikes")
                     return json_data
                 else:
                     print(f"⚠️  Invalid option chain response structure for {symbol}")
                     return None
             else:
-                print(f"⚠️  NSE API returned {response.status_code} for {symbol}")
+                print(f"⚠️  Could not fetch option chain for {symbol}")
                 return None
                 
+        except json.JSONDecodeError:
+            print(f"❌ Invalid JSON in option chain response for {symbol}")
+            return None
         except Exception as e:
             print(f"❌ Error fetching option chain for {symbol}: {str(e)}")
             return None
